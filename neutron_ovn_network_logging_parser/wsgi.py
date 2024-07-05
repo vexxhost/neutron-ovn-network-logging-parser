@@ -21,6 +21,7 @@ config.setup_logging()
 app = Flask(__name__)
 
 VECTOR_HTTP_ENDPOINT = os.getenv("VECTOR_HTTP_ENDPOINT", "http://localhost:5001")
+UNWANTED_LOG_FIELDS = ["host", "file", "source_type"]
 
 
 @app.route("/logs", methods=["POST"])
@@ -81,6 +82,25 @@ def receive_logs():
     )
 
 
+def parse_log_message_field(message):
+    res = {}
+    kv_pairs = message.split(",")
+    kv_pairs.pop[0]
+
+    for pair in kv_pairs:
+        if "=" in pair:
+            key, value = pair.split("=", 1)
+            res[key.strip()] = value.strip()
+    return res
+
+
+def remove_unwanted_fields(log):
+    log.pop("message", None)
+    for field in UNWANTED_LOG_FIELDS:
+        log.pop(field, None)
+    return log
+
+
 def parse_and_enrich_logs(logs):
     app.logger.debug(f"Received raw logs: {logs}")
     pattern = re.compile(r"neutron-([a-f0-9-]+)")
@@ -97,6 +117,11 @@ def parse_and_enrich_logs(logs):
         app.logger.debug(f"Matched log project_id: {project_id}")
         if project_id:
             log["project_id"] = project_id
+        log = {
+            **log,
+            **parse_log_message_field(message),
+        }
+        log = remove_unwanted_fields(log)
         enriched_logs.append(log)
     app.logger.debug(f"Enriched logs, {enriched_logs}")
     return enriched_logs

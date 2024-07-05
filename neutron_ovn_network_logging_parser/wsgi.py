@@ -85,7 +85,7 @@ def receive_logs():
 def parse_log_message_field(message):
     res = {}
     kv_pairs = message.split(",")
-    kv_pairs.pop[0]
+    kv_pairs.pop(0) if len(kv_pairs) > 0 else None
 
     for pair in kv_pairs:
         if "=" in pair:

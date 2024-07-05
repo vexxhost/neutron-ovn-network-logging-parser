@@ -91,6 +91,7 @@ def parse_and_enrich_logs(logs):
         if not match:
             continue
         network_log_id = match.group(1)
+        log["network_log_id"] = network_log_id
         app.logger.debug(f"Matched network log resource id: {network_log_id}")
         project_id = get_project_id_from_network_object(network_log_id)
         app.logger.debug(f"Matched log project_id: {project_id}")

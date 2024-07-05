@@ -7,6 +7,7 @@ import sys
 
 import requests
 
+from cachetools import cached, LRUCache
 from flask import Flask, Response, g, request
 from neutron.common import config
 
@@ -100,6 +101,7 @@ def parse_and_enrich_logs(logs):
     return enriched_logs
 
 
+@cached(cache=LRUCache(maxsize=128))
 def get_project_id_from_network_object(network_log_id):
     try:
         ctx = context.get_admin_context()

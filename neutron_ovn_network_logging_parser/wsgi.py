@@ -6,13 +6,14 @@ import re
 import sys
 
 import requests
-
-from cachetools import cached, LRUCache
+from cachetools import LRUCache, cached
 from flask import Flask, Response, g, request
+from keystoneauth1 import loading as ks_loading
 from neutron.common import config
-
 from neutron.objects.logapi import logging_resource as log_object
 from neutron_lib import context
+from openstack import connection
+from oslo_config import cfg
 
 config.register_common_config_options()
 config.init(sys.argv[1:])
@@ -22,6 +23,7 @@ app = Flask(__name__)
 
 VECTOR_HTTP_ENDPOINT = os.getenv("VECTOR_HTTP_ENDPOINT", "http://localhost:5001")
 UNWANTED_LOG_FIELDS = ["host", "file", "source_type"]
+NOVA_CONNECTION = None
 
 
 @app.route("/logs", methods=["POST"])
@@ -117,6 +119,9 @@ def parse_and_enrich_logs(logs):
         app.logger.debug(f"Matched log project_id: {project_id}")
         if project_id:
             log["project_id"] = project_id
+        domain_id = get_project_domain_id(project_id)
+        if domain_id:
+            log["domain_id"] = domain_id
         log = {
             **log,
             **parse_log_message_field(message),
@@ -140,6 +145,37 @@ def get_project_id_from_network_object(network_log_id):
         app.logger.error(
             f"Error retrieving project id from network log object {network_log_id}: {e}"
         )
+    return None
+
+
+@cached(cache=LRUCache(maxsize=128))
+def get_project_domain_id(project_id):
+    try:
+        # NOTE(okozachenko1203): this method uses Nova Keystone user to retrieve the
+        # project because (1) it is allowed to retrieve the projects and (2)
+        # Neutron avoids adding another user section in the configuration
+        # (Nova user will be always used).
+        global NOVA_CONNECTION
+        if not NOVA_CONNECTION:
+            auth = ks_loading.load_auth_from_conf_options(cfg.CONF, "nova")
+            keystone_session = ks_loading.load_session_from_conf_options(
+                cfg.CONF, "nova", auth=auth
+            )
+            NOVA_CONNECTION = connection.Connection(
+                session=keystone_session,
+                oslo_conf=cfg.CONF,
+                connect_retries=cfg.CONF.http_retries,
+            )
+        project_obj = NOVA_CONNECTION.get_project(project_id)
+        if not project_obj:
+            app.logger.error(f"Project {project_id} does not exist")
+        return project_obj.domain_id
+
+    except Exception as e:
+        app.logger.error(
+            f"Error retrieving domain id from project id {project_id}: {e}"
+        )
+
     return None
 
 

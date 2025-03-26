@@ -8,7 +8,9 @@ import sys
 import requests
 from cachetools import LRUCache, cached
 from flask import Flask, Response, g, request
+from keystoneauth1 import exceptions as ks_exceptions
 from keystoneauth1 import loading as ks_loading
+from keystoneclient.v3 import client
 from neutron.common import config
 from neutron.objects.logapi import logging_resource as log_object
 from neutron_lib import context
@@ -151,26 +153,18 @@ def get_project_id_from_network_object(network_log_id):
 @cached(cache=LRUCache(maxsize=128))
 def get_project_domain_id(project_id):
     try:
-        # NOTE(okozachenko1203): this method uses Nova Keystone user to retrieve the
-        # project because (1) it is allowed to retrieve the projects and (2)
-        # Neutron avoids adding another user section in the configuration
-        # (Nova user will be always used).
-        global NOVA_CONNECTION
-        if not NOVA_CONNECTION:
-            auth = ks_loading.load_auth_from_conf_options(cfg.CONF, "nova")
-            keystone_session = ks_loading.load_session_from_conf_options(
-                cfg.CONF, "nova", auth=auth
-            )
-            NOVA_CONNECTION = connection.Connection(
-                session=keystone_session,
-                oslo_conf=cfg.CONF,
-                connect_retries=cfg.CONF.http_retries,
-            )
-        project_obj = NOVA_CONNECTION.get_project(project_id)
+        auth = ks_loading.load_auth_from_conf_options(cfg.CONF, "nova")
+        keystone_session = ks_loading.load_session_from_conf_options(
+            cfg.CONF, "nova", auth=auth
+        )
+        ks = client.Client(session=keystone_session)
+        project_obj = ks.projects.get(project_id)
         if not project_obj:
             app.logger.error(f"Project {project_id} does not exist")
         return project_obj.domain_id
 
+    except ks_exceptions.http.NotFound:
+        app.logger.error(f"Project {project_id} does not exist")
     except Exception as e:
         app.logger.error(
             f"Error retrieving domain id from project id {project_id}: {e}"

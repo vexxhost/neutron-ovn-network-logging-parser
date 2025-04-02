@@ -121,9 +121,10 @@ def parse_and_enrich_logs(logs):
         app.logger.debug(f"Matched log project_id: {project_id}")
         if project_id:
             log["project_id"] = project_id
-        domain_id = get_project_domain_id(project_id)
-        if domain_id:
-            log["domain_id"] = domain_id
+        domain_info = get_project_domain_info(project_id)
+        if domain_info:
+            log["domain_id"] = domain_info["id"]
+            log["domain_name"] = domain_info["name"]
         log = {
             **log,
             **parse_log_message_field(message),
@@ -151,26 +152,60 @@ def get_project_id_from_network_object(network_log_id):
 
 
 @cached(cache=LRUCache(maxsize=128))
-def get_project_domain_id(project_id):
+def get_project_domain_info(project_id: str) -> Optional[Dict[str, str]]:
+    """
+    Retrieve domain information for a given project ID from Keystone.
+
+    Args:
+        project_id (str): The ID of the project.
+
+    Returns:
+        dict: A dictionary containing domain ID and name if successful.
+        None: If the project or domain does not exist or an error occurs.
+    """
     try:
         auth = ks_loading.load_auth_from_conf_options(cfg.CONF, "nova")
         keystone_session = ks_loading.load_session_from_conf_options(
             cfg.CONF, "nova", auth=auth
         )
         ks = client.Client(session=keystone_session)
-        project_obj = ks.projects.get(project_id)
-        if not project_obj:
-            app.logger.error(f"Project {project_id} does not exist")
-        return project_obj.domain_id
 
-    except ks_exceptions.http.NotFound:
-        app.logger.error(f"Project {project_id} does not exist")
+        # Retrieve the project object
+        try:
+            project_obj = ks.projects.get(project_id)
+        except ks_exceptions.http.NotFound:
+            app.logger.error(f"Project with ID '{project_id}' does not exist.")
+            return None
+
+        if not project_obj:
+            app.logger.error(f"Failed to retrieve project '{project_id}'.")
+            return None
+
+        domain_id = project_obj.domain_id
+
+        # Retrieve the domain object
+        try:
+            domain_obj = ks.domains.get(domain_id)
+        except ks_exceptions.http.NotFound:
+            app.logger.error(f"Domain with ID '{domain_id}' does not exist.")
+            return None
+
+        if not domain_obj:
+            app.logger.error(
+                f"Failed to retrieve domain '{domain_id}' for project '{project_id}'."
+            )
+            return None
+
+        return {
+            "id": domain_id,
+            "name": domain_obj.name,
+        }
+
     except Exception as e:
         app.logger.error(
-            f"Error retrieving domain id from project id {project_id}: {e}"
+            f"Error retrieving domain information for project ID '{project_id}': {e}"
         )
-
-    return None
+        return None
 
 
 def send_logs_to_vector(logs):

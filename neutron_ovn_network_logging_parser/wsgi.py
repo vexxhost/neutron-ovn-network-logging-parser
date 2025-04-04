@@ -4,6 +4,7 @@ import json
 import os
 import re
 import sys
+from typing import Dict, Optional
 
 import requests
 from cachetools import LRUCache, cached

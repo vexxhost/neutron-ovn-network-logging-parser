@@ -119,13 +119,13 @@ def parse_and_enrich_logs(logs):
         log["network_log_id"] = network_log_id
         app.logger.debug(f"Matched network log resource id: {network_log_id}")
         project_id = get_project_id_from_network_object(network_log_id)
-        app.logger.debug(f"Matched log project_id: {project_id}")
         if project_id:
+            app.logger.debug(f"Matched log project_id: {project_id}")
             log["project_id"] = project_id
-        domain_info = get_project_domain_info(project_id)
-        if domain_info:
-            log["domain_id"] = domain_info["id"]
-            log["domain_name"] = domain_info["name"]
+            domain_info = get_project_domain_info(project_id)
+            if domain_info:
+                log["domain_id"] = domain_info["id"]
+                log["domain_name"] = domain_info["name"]
         log = {
             **log,
             **parse_log_message_field(message),
